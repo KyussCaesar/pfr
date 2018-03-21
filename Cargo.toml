@@ -1,0 +1,12 @@
+[package]
+name = "pfr"
+version = "0.1.0"
+authors = ["Antony Southworth <southworthy@gmail.com>"]
+
+[dependencies]
+structopt = "0.2"
+clap = "2.31.1"
+serde = "1.0.33"
+serde_derive = "1.0"
+serde_json = "1.0"
+
