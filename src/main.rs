@@ -315,7 +315,7 @@ fn report() -> Result<()>
         };
 
         let money = Money { cents: (multiplier * transaction.amount.cents as f32) as u64 };
-        amount = money.to_string();
+        amount.push_str(&money.to_string());
 
         match transaction.add_type
         {

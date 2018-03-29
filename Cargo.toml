@@ -2,6 +2,11 @@
 name = "pfr"
 version = "0.1.0"
 authors = ["Antony Southworth <southworthy@gmail.com>"]
+license = "MIT"
+
+description = "personal financial reporting cli tool"
+
+keywords = ["cli", "finance", "reporting"]
 
 [dependencies]
 structopt = "0.2"
