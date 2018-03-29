@@ -1,9 +1,11 @@
 [package]
 name = "pfr"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Antony Southworth <southworthy@gmail.com>"]
 license = "MIT"
 
+readme = "README.md"
+repository = "https://github.com/KyussCaesar/pfr"
 description = "personal financial reporting cli tool"
 
 keywords = ["cli", "finance", "reporting"]

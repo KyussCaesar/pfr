@@ -15,6 +15,8 @@ Because of this, I need to sit down and work out how much is coming and going
 manually, as well as split things by which account they are coming out of, but
 for all of my expenses. This sucks. So I wrote a program to do it for me.
 
+[visit me on crates.io](https://crates.io/crates/pfr)
+
 
 # Usage:
 
