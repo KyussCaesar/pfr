@@ -93,5 +93,11 @@ Via `cargo`:
 
 ```bash
 cargo install pfr
+pfr init # initialises the storage files, in ~/.pfr/
 ```
+
+
+# Data format
+
+`pfr` stores all of your transactions in JSON format in `~/.pfr/`.
 

@@ -1,7 +1,8 @@
 #![allow(non_camel_case_types)]
 
 use std::collections::HashMap;
-use std::fs::File;
+use std::path::PathBuf;
+use std::fs;
 use std::fs::OpenOptions;
 use std::env;
 use std::str::FromStr;
@@ -34,6 +35,18 @@ enum Commands
 
     /// generate a report for the month
     report,
+
+    /// save the current ledger using `name`; can be loaded again with `load name`.
+    save { name: String },
+
+    /// loads the ledger that was saved by `save name`.
+    load{ name: String },
+
+    /// backs up the current ledger
+    backup,
+
+    /// restores the backup
+    restore,
 }
 
 
@@ -63,12 +76,14 @@ struct Transaction
     account: Option<String>,
 }
 
+
 #[derive(StructOpt)]
 struct RmCommand
 {
     /// the name of the entry to remove
     name: String
 }
+
 
 arg_enum!
 {
@@ -77,10 +92,11 @@ arg_enum!
     enum Frequency
     {
         daily,
-        wkly,
-        mthly,
-        qtrly,
-        yrly
+        workdays,
+        weekly,
+        monthly,
+        quarterly,
+        yearly
     }
 }
 
@@ -135,6 +151,10 @@ fn main()
         Commands::rm(transaction)  => rm(transaction),
         Commands::list             => list(),
         Commands::report           => report(),
+        Commands::save { name }    => save(name),
+        Commands::load { name }    => load(name),
+        Commands::backup           => backup(),
+        Commands::restore          => restore(),
     };
 
     // report error if there was one.
@@ -151,6 +171,7 @@ type Result<T> = std::result::Result<T, Error>;
 enum Error
 {
     WhileAttemptingToOpenDataFile(std::io::Error),
+    DuringInitialisation(std::io::Error),
     DuringSerialisation(serde_json::Error),
     DuringDeSerialisation(serde_json::Error),
     CouldNotFindHomeDirectory,
@@ -168,6 +189,7 @@ fn report_error(e: Error) -> Option<()>
     match e
     {
         WhileAttemptingToOpenDataFile(io_e) => println!(" while attempting to open the data file: {}", io_e),
+        DuringInitialisation(e)             => println!(" while attempting to initialise: {}", e),
         DuringSerialisation(e)              => println!(" while attempting to save to the data file: {}", e),
         DuringDeSerialisation(e)            => println!(" while attempting to load from the data file: {}", e),
         CouldNotFindHomeDirectory           => println!(" while attempting to find the current user's home directory; couldn't find it"),
@@ -182,44 +204,72 @@ fn report_error(e: Error) -> Option<()>
 type Ledger = HashMap<String, Transaction>;
 
 
-/// Tries to open the pfr data file, located in the user's home directory.
-///
-/// If successful, returns `Ok(file_handle)`, otherwise, returns a variant of the
-/// Error type describing the error that occurred.
-fn get_file_handle(truncate: bool) -> Result<File>
-{
+/// gets path for file called `name`, located in `~/.pfr/`
+fn get_path(name: &str) -> Result<PathBuf>
+{                     
     let mut home_dir = env::home_dir().ok_or_else(|| Error::CouldNotFindHomeDirectory)?;
+    home_dir.push(".pfr/");
+    home_dir.push(name);
 
-    home_dir.push(".pfr_data");
-
-    return OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(truncate)
-        .open(home_dir)
-        .map_err(|e| Error::WhileAttemptingToOpenDataFile(e));
-}
-
-
-/// Loads the ledger from the pfr data file.
-fn load() -> Result<Ledger>
-{
-    serde_json::from_reader(get_file_handle(false)?).map_err(|e| Error::DuringDeSerialisation(e))
+    return Ok(home_dir);
 }
 
 
 /// Saves the ledger to the pfr data file.
-fn save(ledger: Ledger) -> Result<()>
+fn save_ledger(name: &str, ledger: Ledger) -> Result<()>
 {
-    serde_json::to_writer_pretty(get_file_handle(true)?, &ledger).map_err(|e| Error::DuringSerialisation(e))
+    let ledgerfile = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(get_path(name)?)
+        .map_err(|e| Error::WhileAttemptingToOpenDataFile(e))?;
+
+    serde_json::to_writer_pretty(ledgerfile, &ledger)
+        .map_err(|e| Error::DuringSerialisation(e))
 }
 
 
-/// Creates the pfr data file in the user's home directory.
+/// loads ledger from file
+fn load_ledger(name: &str) -> Result<Ledger>
+{
+    let ledgerfile = OpenOptions::new()
+        .read(true)
+        .open(get_path(name)?)
+        .map_err(|e| Error::WhileAttemptingToOpenDataFile(e))?;
+
+    serde_json::from_reader(ledgerfile)
+        .map_err(|e| Error::DuringDeSerialisation(e))
+}
+
+
+/// saves the ledger to the current ledgerfile.
+fn save_current_ledger(ledger: Ledger) -> Result<()>
+{
+    save_ledger(".current_data", ledger)
+}
+
+
+/// loads the current ledger
+fn load_current_ledger() -> Result<Ledger>
+{
+    load_ledger(".current_data")
+}
+
+
+/// clears the current ledger
 fn init() -> Result<()>
 {
-    save(Ledger::new())
+    let mut home_dir = env::home_dir().ok_or_else(|| Error::CouldNotFindHomeDirectory)?;
+    home_dir.push(".pfr/");
+
+    if !home_dir.exists()
+    {
+        fs::create_dir(home_dir)
+            .map_err(|e| Error::DuringInitialisation(e))?;
+    }
+
+    save_current_ledger(Ledger::new())
 }
 
 
@@ -227,7 +277,7 @@ fn init() -> Result<()>
 /// Errors if an entry with the given name already exists.
 fn add(ac: Transaction) -> Result<()>
 {
-    let mut ledger = load()?;
+    let mut ledger = load_current_ledger()?;
 
     return match ledger.insert(ac.name.clone(), ac)
     {
@@ -238,7 +288,7 @@ fn add(ac: Transaction) -> Result<()>
             Err(e)
         },
         
-        None => save(ledger),
+        None => save_current_ledger(ledger),
     }
 }
 
@@ -246,18 +296,16 @@ fn add(ac: Transaction) -> Result<()>
 /// Removes an entry from the ledger.
 fn rm(rc: RmCommand) -> Result<()>
 {
-    let mut ledger = load()?;
+    let mut ledger = load_current_ledger()?;
     ledger.remove(&rc.name);
-    save(ledger)?;
-
-    Ok(())
+    save_current_ledger(ledger)
 }
 
 
 /// Lists all entries in the ledger.
 fn list() -> Result<()>
 {
-    let ledger = load()?;
+    let ledger = load_current_ledger()?;
 
     for (_, value) in &ledger
     {
@@ -284,7 +332,7 @@ fn list() -> Result<()>
 /// expense is drawn from using the `--account` option of `pfr add`.
 fn report() -> Result<()>
 {
-    let ledger = load()?;
+    let ledger = load_current_ledger()?;
 
     println!("Monthly Report\n");
     println!("{:<20}{:<20}{:<12}{:<10}{:<8}", "INCOME", "EXPENDITURE", "VALUE", "CATEGORY", "ACCOUNT");
@@ -307,11 +355,12 @@ fn report() -> Result<()>
 
         let multiplier: f32 = match transaction.freq
         {
-            Frequency::daily => 30.0,
-            Frequency::wkly  => 4.28, // note: extrapolating out to 30 day month means 4.28 weeks.
-            Frequency::mthly => 1.0,
-            Frequency::qtrly => 1.0/3.0,
-            Frequency::yrly  => 1.0/12.0,
+            Frequency::daily     => 30.0,
+            Frequency::weekly    => 4.28, // note: extrapolating out to 30 day month means 4.28 weeks.
+            Frequency::workdays  => 21.4, // note: 4.28 weeks * 5 day weeks
+            Frequency::monthly   => 1.0,
+            Frequency::quarterly => 1.0/3.0,
+            Frequency::yearly    => 1.0/12.0,
         };
 
         let money = Money { cents: (multiplier * transaction.amount.cents as f32) as u64 };
@@ -392,4 +441,31 @@ fn report() -> Result<()>
     Ok(())
 }
 
+
+/// changes the current ledger to be the one called `name`
+fn load(name: String) -> Result<()>
+{
+    save_ledger(".current_data", load_ledger(&name)?)
+}
+
+
+/// saves the current ledger to file as `name`
+fn save(name: String) -> Result<()>
+{
+    save_ledger(&name, load_current_ledger()?)
+}
+
+
+/// saves a backup
+fn backup() -> Result<()>
+{
+    save(".current_backup".to_string())
+}
+
+
+/// restores the backup
+fn restore() -> Result<()>
+{
+    load(".current_backup".to_string())
+}
 
