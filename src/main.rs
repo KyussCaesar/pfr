@@ -80,8 +80,8 @@ struct Transaction
 #[derive(StructOpt)]
 struct RmCommand
 {
-    /// the name of the entry to remove
-    name: String
+    /// the entries to remove
+    names: Vec<String>
 }
 
 
@@ -293,11 +293,15 @@ fn add(ac: Transaction) -> Result<()>
 }
 
 
-/// Removes an entry from the ledger.
+/// Removes entries from the ledger.
 fn rm(rc: RmCommand) -> Result<()>
 {
     let mut ledger = load_current_ledger()?;
-    ledger.remove(&rc.name);
+    for name in rc.names
+    {
+        ledger.remove(&name);
+    }
+
     save_current_ledger(ledger)
 }
 
@@ -436,7 +440,11 @@ fn report() -> Result<()>
         println!("{:<10} -> {:<10}", Money{ cents: *value }, name);
     }
 
-    println!("{:<10}    {:<10}", Money{ cents: other_alloc }, "(unallocated)");
+    // calculate total coverage
+    let coverage_total = coverage.iter().map(|(_, val)| val).sum();
+
+    println!("{:<10}    {:<10}", Money{ cents: other_alloc },    "(unallocated)");
+    println!("{:<10}    {:<10}", Money{ cents: coverage_total }, "(total)");
 
     Ok(())
 }
